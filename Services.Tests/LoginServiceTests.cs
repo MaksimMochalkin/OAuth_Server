@@ -127,21 +127,21 @@
             var repositoryManagerMock = new Mock<IRepositoryManager>();
             var serviceManagerMock = new Mock<IServiceManager>();
 
-            var yourClass = new LoginService(repositoryManagerMock.Object, serviceManagerMock.Object);
+            var loginService = new LoginService(repositoryManagerMock.Object, serviceManagerMock.Object);
 
             var request = new LoginRequest
             {
                 PhoneNumber = "123456789",
-                AccessToken = "YourAccessToken",
-                RefreshToken = "YourRefreshToken",
-                Password = "YourPassword",
+                AccessToken = "AccessToken",
+                RefreshToken = "RefreshToken",
+                Password = "Password",
             };
 
-            repositoryManagerMock.Setup(x => x.LoginRepository.GetClientLoginAsync(request.PhoneNumber))
+            repositoryManagerMock.Setup(x => x.LoginRepository.GetClientLoginAsync(It.IsAny<string>()))
                 .ReturnsAsync((ClientLoginInfo)null);
 
             // Act
-            var exception = await Assert.ThrowsAsync<UserNotFoundException>(() => yourClass.LogIn(request));
+            var exception = await Assert.ThrowsAsync<UserNotFoundException>(() => loginService.LogIn(request));
 
             // Assert
             exception.ShouldNotBeNull();
@@ -155,29 +155,35 @@
             var repositoryManagerMock = new Mock<IRepositoryManager>();
             var serviceManagerMock = new Mock<IServiceManager>();
 
-            var yourClass = new LoginService(repositoryManagerMock.Object, serviceManagerMock.Object);
+            var loginService = new LoginService(repositoryManagerMock.Object, serviceManagerMock.Object);
 
             var request = new LoginRequest
             {
                 PhoneNumber = "123456789",
-                AccessToken = "YourAccessToken",
-                RefreshToken = "YourRefreshToken",
-                Password = "InvalidPassword", // Set an invalid password for your test
+                AccessToken = "AccessToken",
+                RefreshToken = "RefreshToken",
+                Password = "InvalidPassword",
             };
 
             var loginInfo = new ClientLoginInfo
             {
-                PasswordSalt = "YourSalt",
-                PasswordHash = "YourCorrectPasswordHash", // Set a valid password hash for your test
-                RefreshToken = "YourRefreshToken",
+                PasswordSalt = "Salt",
+                PasswordHash = "CorrectPasswordHash",
+                RefreshToken = "RefreshToken",
                 RefreshTokenExpiryTime = DateTime.UtcNow.AddHours(1),
             };
 
-            repositoryManagerMock.Setup(x => x.LoginRepository.GetClientLoginAsync(request.PhoneNumber))
+            repositoryManagerMock.Setup(x => x.LoginRepository.GetClientLoginAsync(It.IsAny<string>()))
                 .ReturnsAsync(loginInfo);
+            serviceManagerMock.Setup(x => x.PasswordService.ComputeHash(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns("InvalidPasswordHash");
 
-            // Act and Assert
-            await Assert.ThrowsAsync<PasswordHashDoesNotMatch>(() => yourClass.LogIn(request));
+            // Act
+            var exception = await Assert.ThrowsAsync<PasswordHashDoesNotMatch>(() => loginService.LogIn(request));
+
+            // Assert
+            exception.ShouldNotBeNull();
+            exception.Message.ShouldBe("Password hash does not match");
         }
 
         [Fact]
@@ -187,29 +193,73 @@
             var repositoryManagerMock = new Mock<IRepositoryManager>();
             var serviceManagerMock = new Mock<IServiceManager>();
 
-            var yourClass = new LoginService(repositoryManagerMock.Object, serviceManagerMock.Object);
+            var loginService = new LoginService(repositoryManagerMock.Object, serviceManagerMock.Object);
 
             var request = new LoginRequest
             {
                 PhoneNumber = "123456789",
-                AccessToken = "YourAccessToken",
-                RefreshToken = "YourRefreshToken",
-                Password = "YourPassword",
+                AccessToken = "AccessToken",
+                RefreshToken = "InvalidRefreshToken",
+                Password = "Password",
             };
 
             var loginInfo = new ClientLoginInfo
             {
                 PasswordSalt = "YourSalt",
-                PasswordHash = "YourCorrectPasswordHash", // Set a valid password hash for your test
-                RefreshToken = "YourRefreshToken",
-                RefreshTokenExpiryTime = DateTime.UtcNow.AddHours(-1), // Set an expired refresh token
+                PasswordHash = "ValidPasswordHash",
+                RefreshToken = "RefreshToken",
+                RefreshTokenExpiryTime = DateTime.UtcNow.AddHours(-1),
             };
 
-            repositoryManagerMock.Setup(x => x.LoginRepository.GetClientLoginAsync(request.PhoneNumber))
+            repositoryManagerMock.Setup(x => x.LoginRepository.GetClientLoginAsync(It.IsAny<string>()))
                 .ReturnsAsync(loginInfo);
+            serviceManagerMock.Setup(x => x.PasswordService.ComputeHash(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns("ValidPasswordHash");
 
-            // Act and Assert
-            await Assert.ThrowsAsync<RefreshTokenDoesNotMatch>(() => yourClass.LogIn(request));
+            // Act
+            var exception = await Assert.ThrowsAsync<RefreshTokenDoesNotMatch>(() => loginService.LogIn(request));
+
+            // Assert
+            exception.ShouldNotBeNull();
+            exception.Message.ShouldBe("Refresh tokens does not match");
+        }
+
+        [Fact]
+        public async Task LogIn_RefreshTokenTimeExpired_ThrowsRefreshTokenDoesNotMatch()
+        {
+            // Arrange
+            var repositoryManagerMock = new Mock<IRepositoryManager>();
+            var serviceManagerMock = new Mock<IServiceManager>();
+
+            var loginService = new LoginService(repositoryManagerMock.Object, serviceManagerMock.Object);
+
+            var request = new LoginRequest
+            {
+                PhoneNumber = "123456789",
+                AccessToken = "AccessToken",
+                RefreshToken = "RefreshToken",
+                Password = "Password",
+            };
+
+            var loginInfo = new ClientLoginInfo
+            {
+                PasswordSalt = "YourSalt",
+                PasswordHash = "ValidPasswordHash",
+                RefreshToken = "RefreshToken",
+                RefreshTokenExpiryTime = DateTime.UtcNow.AddHours(-1),
+            };
+
+            repositoryManagerMock.Setup(x => x.LoginRepository.GetClientLoginAsync(It.IsAny<string>()))
+                .ReturnsAsync(loginInfo);
+            serviceManagerMock.Setup(x => x.PasswordService.ComputeHash(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns("ValidPasswordHash");
+
+            // Act
+            var exception = await Assert.ThrowsAsync<RefreshTokentExpiryTimeDoesNotMatchException>(() => loginService.LogIn(request));
+
+            // Assert
+            exception.ShouldNotBeNull();
+            exception.Message.ShouldBe("Refresh tokent expiry time does not match");
         }
 
         [Fact]
@@ -220,44 +270,163 @@
             var serviceManagerMock = new Mock<IServiceManager>();
             var configurationMock = new Mock<IConfiguration>();
 
-            var yourClass = new LoginService(repositoryManagerMock.Object, serviceManagerMock.Object);
+            var loginService = new LoginService(repositoryManagerMock.Object, serviceManagerMock.Object);
 
             var request = new LoginRequest
             {
                 PhoneNumber = "123456789",
-                AccessToken = "YourAccessToken",
-                RefreshToken = "YourRefreshToken",
-                Password = "YourPassword",
+                AccessToken = "AccessToken",
+                RefreshToken = "RefreshToken",
+                Password = "Password",
             };
 
             var loginInfo = new ClientLoginInfo
             {
-                PasswordSalt = "YourSalt",
-                PasswordHash = "YourCorrectPasswordHash", // Set a valid password hash for your test
-                RefreshToken = "YourRefreshToken",
+                PasswordSalt = "Salt",
+                PasswordHash = "ValidPasswordHash",
+                RefreshToken = "RefreshToken",
                 RefreshTokenExpiryTime = DateTime.UtcNow.AddHours(1),
-                // Set other properties as needed for your test
             };
 
-            repositoryManagerMock.Setup(x => x.LoginRepository.GetClientLoginAsync(request.PhoneNumber))
+            repositoryManagerMock.Setup(x => x.LoginRepository.GetClientLoginAsync(It.IsAny<string>()))
                 .ReturnsAsync(loginInfo);
 
-            serviceManagerMock.Setup(x => x.TokenService.GetPrincipalFromToken(request.AccessToken))
+            serviceManagerMock.Setup(x => x.PasswordService.ComputeHash(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns("ValidPasswordHash");
+
+            serviceManagerMock.Setup(x => x.TokenService.GetPrincipalFromToken(It.IsAny<string>()))
                 .Returns(new ClaimsPrincipal(new ClaimsIdentity(new Claim[0])));
 
             serviceManagerMock.Setup(x => x.TokenService.GenerateAccessToken(It.IsAny<IEnumerable<Claim>>()))
-                .Returns("YourGeneratedAccessToken");
+                .Returns("GeneratedAccessToken");
 
             serviceManagerMock.Setup(x => x.TokenService.GenerateRefreshToken())
-                .Returns("YourGeneratedRefreshToken");
+                .Returns("GeneratedRefreshToken");
 
             configurationMock.Setup(x => x.GetSection("RefreshTokenValidityHours").Value)
-                .Returns(string.Empty); // Simulate missing configuration
+                .Returns(string.Empty);
 
             serviceManagerMock.Setup(x => x.Configuration).Returns(configurationMock.Object);
 
-            // Act and Assert
-            await Assert.ThrowsAsync<ConfigurationParameterNotFound>(() => yourClass.LogIn(request));
+            // Act
+            var exception = await Assert.ThrowsAsync<ConfigurationParameterNotFound>(() => loginService.LogIn(request));
+
+            // Assert
+            exception.ShouldNotBeNull();
+            exception.Message.ShouldBe("Config param RefreshTokenValidityHours not found");
+        }
+
+        [Fact]
+        public async Task SignUp_NewUser_SuccessfullyRegistersAndReturnsAuthenticatedResponse()
+        {
+            // Arrange
+            var repositoryManagerMock = new Mock<IRepositoryManager>();
+            var serviceManagerMock = new Mock<IServiceManager>();
+            var unitOfWorkMock = new Mock<IUnitOfWork>();
+
+            var loginService = new LoginService(repositoryManagerMock.Object, serviceManagerMock.Object);
+
+            var request = new SignUpRequest
+            {
+                PhoneNumber = "123456789",
+                Password = "Password",
+                ClaimType = "Manager",
+            };
+
+            repositoryManagerMock.Setup(x => x.LoginRepository.GetClientLoginAsync(request.PhoneNumber))
+                .ReturnsAsync((ClientLoginInfo)null);
+
+            serviceManagerMock.Setup(x => x.PasswordService.GenerateSalt())
+                .Returns("YourGeneratedSalt");
+
+            serviceManagerMock.Setup(x => x.PasswordService.ComputeHash(request.Password, "YourGeneratedSalt"))
+                .Returns("YourGeneratedPasswordHash");
+
+            serviceManagerMock.Setup(x => x.TokenService.GenerateAccessToken(It.IsAny<IEnumerable<Claim>>()))
+                .Returns("GeneratedAccessToken");
+
+            serviceManagerMock.Setup(x => x.TokenService.GenerateRefreshToken())
+                .Returns("GeneratedRefreshToken");
+
+            serviceManagerMock.Setup(x => x.Configuration.GetSection("RefreshTokenValidityHours").Value)
+                .Returns("1");
+
+            repositoryManagerMock.Setup(x => x.LoginRepository.InsertAsync(It.IsAny<ClientLoginInfo>()))
+                .Callback<ClientLoginInfo>(user =>
+                {
+                    user.ShouldNotBeNull();
+                    user.PhoneNumber.ShouldBe("123456789");
+                })
+                .Returns(Task.CompletedTask);
+
+            repositoryManagerMock.Setup(x => x.UnitOfWork).Returns(unitOfWorkMock.Object);
+            unitOfWorkMock.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(1);
+
+            // Act
+            var result = await loginService.SignUp(request);
+
+            // Assert
+            result.ShouldNotBeNull();
+            result.Token.ShouldNotBeNull();
+            result.Token.ShouldBe("GeneratedAccessToken");
+            result.RefreshToken.ShouldNotBeNull();
+            result.RefreshToken.ShouldBe("GeneratedRefreshToken");
+        }
+
+        [Fact]
+        public async Task SignUp_ExistingUser_ThrowsDuplicateClientLoginInfoException()
+        {
+            // Arrange
+            var repositoryManagerMock = new Mock<IRepositoryManager>();
+            var serviceManagerMock = new Mock<IServiceManager>();
+
+            var loginService = new LoginService(repositoryManagerMock.Object, serviceManagerMock.Object);
+
+            var request = new SignUpRequest
+            {
+                PhoneNumber = "123456789",
+                Password = "Password",
+                ClaimType = "Manager",
+            };
+
+            repositoryManagerMock.Setup(x => x.LoginRepository.GetClientLoginAsync(It.IsAny<string>()))
+                .ReturnsAsync(new ClientLoginInfo());
+
+            // Act 
+            var exception = await Assert.ThrowsAsync<DuplicateClientLoginInfoException>(() => loginService.SignUp(request));
+
+            // Assert
+            exception.ShouldNotBeNull();
+            exception.Message.ShouldBe("A user with this set of parameters already exists");
+        }
+
+        [Theory]
+        [InlineData(null, "Password", "Manager", "Value cannot be null. (Parameter 'Phone number missed')")]
+        [InlineData("123456789", null, "Manager", "Value cannot be null. (Parameter 'Password missed')")]
+        [InlineData("123456789", "Password", null, "Value cannot be null. (Parameter 'ClaimType missed')")]
+        public async Task SignUp_InvalidRequest_ThrowsArgumentException(
+            string phoneNumber, string password, string claimType, string expectedErrorMessage)
+        {
+            // Arrange
+            var repositoryManagerMock = new Mock<IRepositoryManager>();
+            var serviceManagerMock = new Mock<IServiceManager>();
+
+            var loginService = new LoginService(repositoryManagerMock.Object, serviceManagerMock.Object);
+
+            var request = new SignUpRequest
+            {
+                PhoneNumber = phoneNumber,
+                Password = password,
+                ClaimType = claimType,
+            };
+
+            // Act
+            var exception = await Assert.ThrowsAsync<ArgumentNullException>(() => loginService.SignUp(request));
+
+            // Assert
+            exception.ShouldNotBeNull();
+            exception.Message.ShouldBe(expectedErrorMessage);
         }
     }
 }

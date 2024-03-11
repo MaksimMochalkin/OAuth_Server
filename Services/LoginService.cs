@@ -23,7 +23,6 @@
         public async Task<AuthenticatedResponse> LogIn(LoginRequest request)
         {
             ValidateLoginRequest(request);
-
             var loginInfo = await _repositoryManager.LoginRepository.GetClientLoginAsync(request.PhoneNumber).ConfigureAwait(false);
             ValidateLoginInfo(request, loginInfo);
             
@@ -48,6 +47,7 @@
 
         public async Task<AuthenticatedResponse> SignUp(SignUpRequest request)
         {
+            ValidateSignUpRequest(request);
             var loginInfo = await _repositoryManager.LoginRepository.GetClientLoginAsync(request.PhoneNumber).ConfigureAwait(false);
 
             if (loginInfo == null)
@@ -65,7 +65,10 @@
                 var token = _serviceManager.TokenService.GenerateAccessToken(claims);
                 var refreshToken = _serviceManager.TokenService.GenerateRefreshToken();
                 registeredUser.RefreshToken = refreshToken;
-                registeredUser.RefreshTokenExpiryTime = DateTime.UtcNow.AddHours(1);
+                var expiryTime = _serviceManager.Configuration.GetSection("RefreshTokenValidityHours").Value;
+                registeredUser.RefreshTokenExpiryTime = int.TryParse(expiryTime, out var time) ?
+                    DateTime.UtcNow.AddHours(time) :
+                    throw new ConfigurationParameterNotFound("Config param RefreshTokenValidityHours not found");
 
                 await _repositoryManager.LoginRepository.InsertAsync(registeredUser).ConfigureAwait(false);
                 await _repositoryManager.UnitOfWork.SaveChangesAsync().ConfigureAwait(false);
@@ -109,12 +112,27 @@
             if (loginInfo.PasswordHash != passwordHash)
                 throw new PasswordHashDoesNotMatch();
 
-            if (loginInfo.RefreshToken != request.RefreshToken || loginInfo.RefreshTokenExpiryTime <= DateTime.UtcNow)
+            if (loginInfo.RefreshToken != request.RefreshToken)
                 throw new RefreshTokenDoesNotMatch();
 
             if (loginInfo.RefreshTokenExpiryTime <= DateTime.UtcNow)
                 throw new RefreshTokentExpiryTimeDoesNotMatchException();
 
+        }
+
+        private void ValidateSignUpRequest(SignUpRequest request)
+        {
+            if (request is null)
+                throw new ArgumentNullException(nameof(request));
+
+            if (string.IsNullOrWhiteSpace(request.PhoneNumber))
+                throw new ArgumentNullException("Phone number missed");
+
+            if (string.IsNullOrWhiteSpace(request.Password))
+                throw new ArgumentNullException("Password missed");
+
+            if (string.IsNullOrWhiteSpace(request.ClaimType))
+                throw new ArgumentNullException("ClaimType missed");
         }
 
         private List<Claim> GetClaims(SignUpRequest request)
@@ -123,8 +141,8 @@
             switch (request.ClaimType)
             {
                 case "Manager":
-                    claims.Add(new Claim(ClaimTypes.Name, "Manager"));
-                    claims.Add(new Claim(ClaimTypes.Role, "Manager"));
+                    claims.Add(new Claim(ClaimTypes.Name, "Provider"));
+                    claims.Add(new Claim(ClaimTypes.Role, "Provider"));
                     break;
                 case "Support":
                     claims.Add(new Claim(ClaimTypes.Name, "Support"));
@@ -134,10 +152,12 @@
                     claims.Add(new Claim(ClaimTypes.Name, "Admin"));
                     claims.Add(new Claim(ClaimTypes.Role, "Admin"));
                     break;
-                default:
+                case "Default":
                     claims.Add(new Claim(ClaimTypes.Name, "DefaultClaims"));
                     claims.Add(new Claim(ClaimTypes.Role, "RegularUser"));
                     break;
+                default:
+                    throw new NotImplementedException("Unknown claim type");
             }
             
             return claims;
